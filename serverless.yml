@@ -1,0 +1,78 @@
+service:
+  name: nodejs-example
+
+plugins:
+  - serverless-plugin-typescript
+  - serverless-dynamodb-local
+  - serverless-plugin-optimize
+  - serverless-offline
+  # - serverless-plugin-warmup
+
+custom:
+  offline:
+    url: http://localhost:3000
+  dev:
+    url: { "Fn::Join" : ["", [" https://", { "Ref" : "ApiGatewayRestApi" }, ".execute-api.${self:provider.region}.amazonaws.com/${self:provider.stage}"]]  }
+  dynamodb:
+    stages:
+      - ${self:provider.stage}
+#   warmup:
+#     enabled: true
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'ap-southeast-1'}
+  apiGateway:
+    minimumCompressionSize: 1024
+  environment:
+    AWS_NODEJS_CONNECTION_REUSE_ENABLED: 1
+    DYNAMODB_TABLE: Order
+    APIG_URL: ${self:custom.${self:provider.stage}.url}
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:DescribeTable
+        - dynamodb:Query
+        - dynamodb:Scan
+        - dynamodb:GetItem
+        - dynamodb:PutItem
+        - dynamodb:UpdateItem
+        - dynamodb:DeleteItem
+      Resource: "arn:aws:dynamodb:${opt:region, self:provider.region}:*:table/*"
+
+functions:
+  orders:
+    handler: src/orders/lambda.handler
+    events:
+      - http:
+          method: any
+          path: /orders/{any+}
+          cors: true
+  payments:
+    handler: src/payments/lambda.handler
+    events:
+      - http:
+          method: any
+          path: /payments/{any+}
+          cors: true
+
+resources:
+  Resources:
+    OrdersDynamoDbTable:
+      Type: 'AWS::DynamoDB::Table'
+      DeletionPolicy: Retain
+      Properties:
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        TableName: ${self:provider.environment.DYNAMODB_TABLE}
+        AttributeDefinitions:
+          -
+            AttributeName: "uuid"
+            AttributeType: "S"  
+        KeySchema:
+          -
+            AttributeName: "uuid"
+            KeyType: "HASH"
